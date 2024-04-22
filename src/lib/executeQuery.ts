@@ -1,3 +1,4 @@
+import { EntityMetadata } from 'typeorm';
 import { createQuery } from './createQuery';
 
 const mapToObject = (aMap) => {
@@ -57,6 +58,42 @@ const processIncludes = (queryBuilder: any, odataQuery: any, alias: string, pare
   return queryBuilder;
 };
 
+const hasAnyFilter = (value: any) => {
+
+  if (value.left) {
+    return hasAnyFilter(value.left.value) || hasAnyFilter(value.right.value);
+  }
+
+  if (value.raw?.indexOf('.any(') >= 0) {
+    return value.raw;
+  }
+
+  return;
+}
+
+const getAnyFilterDetails = (anyFilterString: string, metadata: EntityMetadata) => {
+  const splitString = anyFilterString.split('.any(');
+  const entity = splitString[0];
+  const splitInfo = splitString[1].split('=');
+  const field = splitInfo[0];
+  const value = splitInfo[1].replace(')', '');
+
+  if (entity && field && value !== undefined) {
+    const tableName = metadata.relations.find(c => c.propertyName === entity).entityMetadata.tableName;
+    const joinFieldName = metadata.relations.find(c => c.propertyName === 'children').inverseSidePropertyPath;
+    const targetName = metadata.relations.find(c => c.propertyName === entity).entityMetadata.targetName;
+    return {
+      entity,
+      field,
+      value,
+      targetName,
+      tableName,
+      joinFieldName,
+    }
+  }
+  return null;
+}
+
 const executeQueryByQueryBuilder = async (inputQueryBuilder, query, options: any) => {
   const alias = inputQueryBuilder.expressionMap.mainAlias.name;
   //const filter = createFilter(query.$filter, {alias: alias});
@@ -82,10 +119,41 @@ const executeQueryByQueryBuilder = async (inputQueryBuilder, query, options: any
 
   queryBuilder = queryBuilder.select(root_select);
 
+  if (odataQuery.where) {
+    let whereStringEnd = odataQuery.where.slice(-4);
+    if (whereStringEnd.indexOf('AND') >= 0) {
+      odataQuery.where = odataQuery.where.slice(0, -4);
+    }
+  }
   queryBuilder = queryBuilder
     .andWhere(odataQuery.where)
     .setParameters(mapToObject(odataQuery.parameters));
-
+    
+  const filters = odataQuery.ast.value.options.find(o => o.type === 'Filter')?.value;
+  const anyFilter = hasAnyFilter(filters.value);
+  // console.log(queryBuilder.getQuery());
+  if (anyFilter) {
+    let anyFilterDetails = getAnyFilterDetails(anyFilter, metadata);
+    if (anyFilterDetails) {
+      queryBuilder = queryBuilder.andWhere(
+        '`' + anyFilterDetails.targetName + '`.`id` IN ( ' +
+        'SELECT distinct `' + anyFilterDetails.joinFieldName + '`.`id` ' +
+        'FROM `' + anyFilterDetails.tableName + '` AS parent ' +
+        'JOIN `' + anyFilterDetails.tableName + '` AS child ON `' + anyFilterDetails.joinFieldName + '`.`id` = `child`.`' + anyFilterDetails.joinFieldName + 'Id` ' +
+        'WHERE `child`.`' + anyFilterDetails.field + '` = :childId ' +
+    ')', 
+      { childId: anyFilterDetails.value })
+      
+    //   queryBuilder = queryBuilder.andWhere(
+    //     '`RecordEntity`.`id` IN ( ' +
+    //     'SELECT distinct `parent`.`id` ' +
+    //     'FROM `record_entity` AS parent ' +
+    //     'JOIN `record_entity` AS child ON `parent`.`id` = `child`.`parentId` ' +
+    //     'WHERE `child`.`id` = :childId ' +
+    // ')', 
+    //   { childId: 52 })
+    }
+  }
   queryBuilder = processIncludes(queryBuilder, odataQuery, alias, metadata);
 
   if (odataQuery.orderby && odataQuery.orderby !== '1') {
