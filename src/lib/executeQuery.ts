@@ -141,7 +141,7 @@ const executeQueryByQueryBuilder = async (inputQueryBuilder, query, options: any
   }
     
   const filters = odataQuery.ast.value.options.find(o => o.type === 'Filter')?.value;
-  const anyFilter = hasAnyFilter(filters.value);
+  const anyFilter = hasAnyFilter(filters?.value);
   if (anyFilter) {
     let anyFilterDetails = getAnyFilterDetails(anyFilter, metadata);
     if (anyFilterDetails) {
