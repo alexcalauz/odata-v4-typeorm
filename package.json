@@ -1,6 +1,6 @@
 {
-  "name": "@the_blitzmann/odata-v4-typeorm",
-  "version": "0.0.2",
+  "name": "@alex.calauz/odata-v4-typeorm",
+  "version": "0.0.4",
   "description": "OData to TYPEORM query compiler",
   "main": "build/lib/index.js",
   "typings": "build/lib/index",
@@ -18,7 +18,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/blitzmann/odata-v4-typeorm.git"
+    "url": "git+https://github.com/alexcalauz/odata-v4-typeorm.git"
   },
   "keywords": [
     "typeorm",
@@ -30,12 +30,12 @@
     "sql",
     "node"
   ],
-  "author": "blitzmann",
+  "author": "alexcalauz",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/blitzmann/odata-v4-typeorm/issues"
+    "url": "https://github.com/alexcalauz/odata-v4-typeorm/issues"
   },
-  "homepage": "https://github.com/blitzmann/odata-v4-typeorm#readme",
+  "homepage": "https://github.com/alexcalauz/odata-v4-typeorm#readme",
   "dependencies": {
     "odata-v4-parser": "^0.1.29",
     "odata-v4-sql": "^0.1.2"
