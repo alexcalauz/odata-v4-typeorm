@@ -1,4 +1,3 @@
-import { EntityMetadata } from 'typeorm';
 import { createQuery } from './createQuery';
 
 const mapToObject = (aMap) => {
@@ -71,7 +70,7 @@ const hasAnyFilter = (value: any) => {
   return;
 }
 
-const getAnyFilterDetails = (anyFilterString: string, metadata: EntityMetadata) => {
+const getAnyFilterDetails = (anyFilterString: string, metadata: any) => {
   const splitString = anyFilterString.split('/any(');
   const entity = splitString[0];
   const splitInfo = splitString[1].split('/')[1].split(' eq ');
