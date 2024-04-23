@@ -58,6 +58,9 @@ const processIncludes = (queryBuilder: any, odataQuery: any, alias: string, pare
 };
 
 const hasAnyFilter = (value: any) => {
+  if (!value) {
+    return;
+  }
 
   if (value.left) {
     return hasAnyFilter(value.left.value) || hasAnyFilter(value.right.value);
