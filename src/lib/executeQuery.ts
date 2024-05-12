@@ -31,12 +31,12 @@ const processIncludes = (queryBuilder: any, odataQuery: any, alias: string, pare
       if (join === 'leftJoin') {
         // add selections of data
         // todo: remove columns that are isSelect: false
-        queryBuilder.addSelect(item.select.split(',').map(x => x.trim()).filter(x => x !== ''));
+        // queryBuilder.addSelect(item.select.split(',').map(x => x.trim()).filter(x => x !== ''));
       }
 
       queryBuilder = queryBuilder[join](
         (alias ? alias + '.' : '') + item.navigationProperty,
-        item.alias,
+        item.navigationProperty,
         item.where.replace(/typeorm_query/g, item.navigationProperty),
         mapToObject(item.parameters)
       );
@@ -49,7 +49,7 @@ const processIncludes = (queryBuilder: any, odataQuery: any, alias: string, pare
       }
 
       if (item.includes && item.includes.length > 0) {
-        processIncludes(queryBuilder, { includes: item.includes }, item.alias, relation_metadata);
+        processIncludes(queryBuilder, { includes: item.includes }, item.navigationProperty, relation_metadata);
       }
     });
   }
@@ -147,9 +147,9 @@ const executeQueryByQueryBuilder = async (inputQueryBuilder, query, options: any
     if (anyFilterDetails) {
       queryBuilder = queryBuilder.andWhere(
         '`' + anyFilterDetails.targetName + '`.`id` IN ( ' +
-        'SELECT distinct `' + anyFilterDetails.joinFieldName + '`.`id` ' +
+        'SELECT distinct `parent`.`id` ' +
         'FROM `' + anyFilterDetails.tableName + '` AS parent ' +
-        'JOIN `' + anyFilterDetails.childrenTableName + '` AS child ON `' + anyFilterDetails.joinFieldName + '`.`id` = `child`.`' + anyFilterDetails.joinFieldName + 'Id` ' +
+        'JOIN `' + anyFilterDetails.childrenTableName + '` AS child ON `parent`.`id` = `child`.`' + anyFilterDetails.joinFieldName + 'Id` ' +
         'WHERE `child`.`' + anyFilterDetails.field + '` = :childPropValue ' +
     ')', 
       { childPropValue: anyFilterDetails.value })
