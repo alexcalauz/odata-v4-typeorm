@@ -23,7 +23,7 @@ const queryToOdataString = (query): string => {
   return result;
 };
 
-const processIncludes = (queryBuilder: any, odataQuery: any, alias: string, parent_metadata: any): [any, string] => {
+const processIncludes = (queryBuilder: any, odataQuery: any, alias: string, parent_metadata: any, navProps: string[] = []): [any, string] => {
   if (odataQuery.includes && odataQuery.includes.length > 0) {
     odataQuery.includes.forEach(item => {
       const relation_metadata = queryBuilder.connection.getMetadata(parent_metadata.relations.find(x => x.propertyPath === item.navigationProperty).type)
@@ -34,9 +34,11 @@ const processIncludes = (queryBuilder: any, odataQuery: any, alias: string, pare
         // queryBuilder.addSelect(item.select.split(',').map(x => x.trim()).filter(x => x !== ''));
       }
 
+      const navProp = navProps.indexOf(item.navigationProperty) < 0 ? item.navigationProperty : item.alias;
+      navProps.push(navProp);
       queryBuilder = queryBuilder[join](
         (alias ? alias + '.' : '') + item.navigationProperty,
-        item.navigationProperty,
+        navProp,
         item.where.replace(/typeorm_query/g, item.navigationProperty),
         mapToObject(item.parameters)
       );
@@ -49,7 +51,7 @@ const processIncludes = (queryBuilder: any, odataQuery: any, alias: string, pare
       }
 
       if (item.includes && item.includes.length > 0) {
-        processIncludes(queryBuilder, { includes: item.includes }, item.navigationProperty, relation_metadata);
+        processIncludes(queryBuilder, { includes: item.includes }, item.navigationProperty, relation_metadata, navProps);
       }
     });
   }
@@ -239,6 +241,8 @@ const executeQueryByQueryBuilder = async (inputQueryBuilder, query, options: any
     }
   }
 
+  // odataQuery = changeDuplicateNavProps(odataQuery);
+
   queryBuilder = processIncludes(queryBuilder, odataQuery, alias, metadata);
 
   if (odataQuery.orderby && odataQuery.orderby !== '1') {
@@ -261,6 +265,19 @@ const executeQueryByQueryBuilder = async (inputQueryBuilder, query, options: any
 
   return queryBuilder.getMany();
 };
+
+const changeDuplicateNavProps =(query: any, navProps: string[] = []) => {
+  query.includes.forEach(item => {
+    if (item.includes) {
+      if (navProps.indexOf(item.navigationProperty) >= 0) {
+        item.navigationProperty += '81';
+      }
+      navProps.push(item.navigationProperty);
+      changeDuplicateNavProps(item, navProps);
+    }
+  });
+  return query;
+}
 
 const executeQuery = async (repositoryOrQueryBuilder: any, query, options: any) => {
   options = options || {};
