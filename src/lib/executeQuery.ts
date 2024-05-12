@@ -76,23 +76,65 @@ const hasAnyFilter = (value: any) => {
 const getAnyFilterDetails = (anyFilterString: string, metadata: any) => {
   const splitString = anyFilterString.split('/any(');
   const entity = splitString[0];
-  const splitInfo = splitString[1].split('/')[1].split(' eq ');
-  const field = splitInfo[0];
-  let value = splitInfo[1].replace(')', '');
+  
+  let s1 = splitString[1].slice(0, -1).split(":")[1];
+  
+  const anyFilterObject = {
+    conditions: [],
+    operator: "and",
+  };
+  
+    let s2 = [s1];
+    if (s1.indexOf(" or ") >= 0 || s1.indexOf(" and ") >= 0) {
+      s1 = trimParanthesis(s1);
+      s2 = s1.split(" and ");
+      if (s2.length < 2) {
+        s2 = s1.split(" or ");
+      }
+    }
 
-  if (value[0] === "'") {
-    value = value.slice(1, -1);
+    for (let i in s2) {
+      s2[i] = trimParanthesis(s2[i]);
+      
+      const conditionData = {
+        operator: "eq",
+        columnName: "",
+        value: "",
+      }
+      
+      if (s2[i].indexOf("contains") >= 0) {
+      // CASE CONTAINS
+        conditionData.operator = "contains";
+        const s3 = s2[i].replace("contains", "");
+        
+        const s4 = trimParanthesis(s3).split(",");
+        conditionData.columnName = s4[0].split("/")[1];
+        conditionData.value = trimCommas(s4[1].trim());
+      } else {
+        // CASE EQ
+        const s3 = s2[i].split("/");
+        const field = s3[0];
+        const s4 = s3[1].split(" eq ");
+        conditionData.columnName = s4[0];
+        conditionData.value = trimCommas(s4[1]);
+      }
+      
+      anyFilterObject.conditions.push(conditionData);
+  }
+  
+  if (s1.indexOf(" or ") >= 0) {
+    // OR LOGIC
+    anyFilterObject.operator = "or";
   }
 
-  if (entity && field && value !== undefined) {
+  if (entity && anyFilterObject.conditions?.length > 0) {
     const tableName = metadata.relations.find(c => c.propertyName === entity).entityMetadata.tableName;
     const childrenTableName = metadata.relations.find(c => c.propertyName === entity).inverseRelation.entityMetadata.tableName;
     const joinFieldName = metadata.relations.find(c => c.propertyName === entity).inverseSidePropertyPath;
     const targetName = metadata.relations.find(c => c.propertyName === entity).entityMetadata.targetName;
     return {
+      anyFilterObject,
       entity,
-      field,
-      value,
       targetName,
       tableName,
       childrenTableName,
@@ -100,6 +142,36 @@ const getAnyFilterDetails = (anyFilterString: string, metadata: any) => {
     }
   }
   return null;
+}
+
+
+const getWhereCondition = (anyFilterObject: any) => {
+  let conditions = [];
+  for (let i in anyFilterObject.conditions) {
+    const condition = anyFilterObject.conditions[i];
+    if (condition.operator === "contains") {
+      conditions.push('`child`.`' + condition.columnName + "` LIKE '%" + condition.value + "%'")
+    }
+    if (condition.operator === "eq") {
+      conditions.push('`child`.`' + condition.columnName + "` = '" + condition.value + "'")
+    }
+  }
+
+  return conditions.join(' ' + anyFilterObject.operator + ' ');
+}
+
+const trimParanthesis = (str: string) => {
+  if (str[0] === "(" && str[str.length - 1] === ")") {
+    return str.slice(1, -1);
+  }
+  return str;
+}
+
+const trimCommas = (str: string) => {
+  if ((str[0] === "'" && str[str.length - 1] === "'") || (str[0] === '"' && str[str.length - 1] === '"')) {
+    return str.slice(1, -1);
+  }
+  return str;
 }
 
 const executeQueryByQueryBuilder = async (inputQueryBuilder, query, options: any) => {
@@ -145,14 +217,15 @@ const executeQueryByQueryBuilder = async (inputQueryBuilder, query, options: any
   if (anyFilter) {
     let anyFilterDetails = getAnyFilterDetails(anyFilter, metadata);
     if (anyFilterDetails) {
+      const whereCondition = getWhereCondition(anyFilterDetails.anyFilterObject); 
       queryBuilder = queryBuilder.andWhere(
         '`' + anyFilterDetails.targetName + '`.`id` IN ( ' +
         'SELECT distinct `parent`.`id` ' +
         'FROM `' + anyFilterDetails.tableName + '` AS parent ' +
         'JOIN `' + anyFilterDetails.childrenTableName + '` AS child ON `parent`.`id` = `child`.`' + anyFilterDetails.joinFieldName + 'Id` ' +
-        'WHERE `child`.`' + anyFilterDetails.field + '` = :childPropValue ' +
+        'WHERE ' + whereCondition + ' ' +
     ')', 
-      { childPropValue: anyFilterDetails.value })
+      {  })
       console.log(queryBuilder.getQuery());
       
     //   queryBuilder = queryBuilder.andWhere(
@@ -165,6 +238,7 @@ const executeQueryByQueryBuilder = async (inputQueryBuilder, query, options: any
     //   { childId: 52 })
     }
   }
+
   queryBuilder = processIncludes(queryBuilder, odataQuery, alias, metadata);
 
   if (odataQuery.orderby && odataQuery.orderby !== '1') {

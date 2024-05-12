@@ -103,6 +103,13 @@ export class TypeOrmVisitor extends Visitor {
     context.identifier = node.value.name;
   }
 
+  protected VisitCommonExpression(node:Token, context:any) {
+    // exclude "any" and "all" functions as they handled separately
+    if (node.value.raw.indexOf("/any(") < 0 && node.value.raw.indexOf("/all(") < 0) {
+      this.Visit(node.value, context);
+    }
+  }
+
   private getIdentifier(originalIdentifier: string, context: any) {
     let alias = '';
     if (!context || !context.identifier || !context.identifier.endsWith('.')) {
