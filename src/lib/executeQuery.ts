@@ -1,3 +1,4 @@
+import { parse } from 'path';
 import { createQuery } from './createQuery';
 
 const mapToObject = (aMap) => {
@@ -75,105 +76,222 @@ const hasAnyFilter = (value: any) => {
   return;
 }
 
-const getAnyFilterDetails = (anyFilterString: string, metadata: any) => {
-  const splitString = anyFilterString.split('/any(');
+function parseCondition(input: string, paramIndex: number = 0, paramMap: any = {}) {
+  const output = {
+    tree: [],
+    paramMap,
+  };
+  let lastIndex = 0;
+  let nextIndex = 0;
+  
+  for (let i = 0; i < input.length; i++) {
+    const index = i;
+    if (index < nextIndex) {
+      continue;
+    }
+    if (input.slice(index, index + 9) === "contains(") {
+      lastIndex = index;
+      nextIndex = findClosingParenthesisIndex(input, index + 8);
+      
+      const condition = {
+        type: "condition",
+        startIndex: index,
+        endIndex: nextIndex,
+        value: input.slice(index, nextIndex + 1),
+        children: [],
+        content: {},
+      };
+      condition.content = processRawCondition(condition.value, output.paramMap, paramIndex);
+      paramIndex++;
+      output.tree.push(condition);
+      
+      continue;
+    }
+    if (input.slice(index, index + 5) === " and " || input.slice(index, index + 4) === " or ") {
+      let keyword = "and";
+      let keywordLength = 5;
+      if(input.slice(index, index + 4) === " or ") {
+        keyword = "or";
+        keywordLength = 4;
+      }
+      
+      const condition = {
+        type: "condition",
+        startIndex: lastIndex,
+        endIndex: index - 1,
+        value: input.slice(lastIndex, index),
+        children: [],
+        content: {},
+      };
+      
+      lastIndex = index;
+      nextIndex = index + keywordLength;
+      
+      const operator = {
+        type: "operator",
+        startIndex: lastIndex,
+        endIndex: nextIndex,
+        value: input.slice(index, index + keywordLength),
+        children: [],
+      };
+      if (output.tree.length === 0 || output.tree[output.tree.length - 1].type !== "group") {
+        condition.content = processRawCondition(condition.value, paramMap, paramIndex);
+        paramIndex++;
+        output.tree.push(condition);
+      }
+      output.tree.push(operator);
+      continue;
+    }
+    if (input[index] === "(") {
+      lastIndex = index;
+      nextIndex = findClosingParenthesisIndex(input, index);
+      if (nextIndex !== -1) {
+        const group = {
+          type: "group",
+          startIndex: index,
+          endIndex: nextIndex,
+          value: input.slice(index + 1, nextIndex),
+          children: [],
+        };
+        const parsed = parseCondition(group.value, paramIndex++, paramMap);
+        group.children = parsed.tree;
+        output.tree.push(group);
+        output.paramMap = parsed.paramMap;
+      }
+      continue;
+    }
+    
+    if (index === input.length - 1 && input[index] !== ")") {
+      const condition = {
+        type: "condition",
+        startIndex: nextIndex + 1,
+        endIndex: index,
+        value: input.slice(nextIndex, index + 1),
+        children: [],
+        content: {},
+      };
+      condition.content = processRawCondition(condition.value, paramMap, paramIndex);
+      paramIndex++;
+      output.tree.push(condition);
+    }
+  }
+  return output;
+}
+
+function getWhereFromAnyString(string, metadata) {
+  const splitString = string.split('/any(');
   const entity = splitString[0];
   
-  let s1 = splitString[1].slice(0, -1).split(":")[1];
+  const tableName = metadata.relations.find(c => c.propertyName === entity).entityMetadata.tableName;
+  const childrenTableName = metadata.relations.find(c => c.propertyName === entity).inverseRelation.entityMetadata.tableName;
+  const joinFieldName = metadata.relations.find(c => c.propertyName === entity).inverseSidePropertyPath;
+  const targetName = metadata.relations.find(c => c.propertyName === entity).entityMetadata.targetName;
+
   
-  const anyFilterObject = {
-    conditions: [],
-    operator: "and",
+  let anyContent = splitString[1].slice(0, -1).split(":")[1];
+  
+  const parsed = parseCondition(anyContent);
+  return {
+    whereQueryString: getWhere(parsed.tree),
+    tableName,
+    childrenTableName,
+    joinFieldName,
+    targetName,
+    paramMap: parsed.paramMap,
   };
-  
-    let s2 = [s1];
-    if (s1.indexOf(" or ") >= 0 || s1.indexOf(" and ") >= 0) {
-      s1 = trimParanthesis(s1);
-      s2 = s1.split(" and ");
-      if (s2.length < 2) {
-        s2 = s1.split(" or ");
-      }
-    }
-
-    for (let i in s2) {
-      s2[i] = trimParanthesis(s2[i]);
-      
-      const conditionData = {
-        operator: "eq",
-        columnName: "",
-        value: "",
-      }
-      
-      if (s2[i].indexOf("contains") >= 0) {
-      // CASE CONTAINS
-        conditionData.operator = "contains";
-        const s3 = s2[i].replace("contains", "");
-        
-        const s4 = trimParanthesis(s3).split(",");
-        conditionData.columnName = s4[0].split("/")[1];
-        conditionData.value = trimCommas(s4[1].trim());
-      } else {
-        // CASE EQ
-        const s3 = s2[i].split("/");
-        const field = s3[0];
-        const s4 = s3[1].split(" eq ");
-        conditionData.columnName = s4[0];
-        conditionData.value = trimCommas(s4[1]);
-      }
-      
-      anyFilterObject.conditions.push(conditionData);
-  }
-  
-  if (s1.indexOf(" or ") >= 0) {
-    // OR LOGIC
-    anyFilterObject.operator = "or";
-  }
-
-  if (entity && anyFilterObject.conditions?.length > 0) {
-    const tableName = metadata.relations.find(c => c.propertyName === entity).entityMetadata.tableName;
-    const childrenTableName = metadata.relations.find(c => c.propertyName === entity).inverseRelation.entityMetadata.tableName;
-    const joinFieldName = metadata.relations.find(c => c.propertyName === entity).inverseSidePropertyPath;
-    const targetName = metadata.relations.find(c => c.propertyName === entity).entityMetadata.targetName;
-    return {
-      anyFilterObject,
-      entity,
-      targetName,
-      tableName,
-      childrenTableName,
-      joinFieldName,
-    }
-  }
-  return null;
 }
 
+function findClosingParenthesisIndex(expression, openIndex) {
+  let stack = 0;
+  
+  // Start from the opening parenthesis index
+  for (let i = openIndex; i < expression.length; i++) {
+    const character = expression[i];
+    // If it's an opening parenthesis, increment the stack
+    if (character === '(') {
+      stack++;
+    } else if (character === ')') {
+      // If it's a closing parenthesis, decrement the stack
+      stack--;
 
-const getWhereCondition = (anyFilterObject: any) => {
-  let conditions = [];
-  for (let i in anyFilterObject.conditions) {
-    const condition = anyFilterObject.conditions[i];
-    if (condition.operator === "contains") {
-      conditions.push('`child`.`' + condition.columnName + "` LIKE '%" + condition.value + "%'")
-    }
-    if (condition.operator === "eq") {
-      conditions.push('`child`.`' + condition.columnName + "` = '" + condition.value + "'")
+      // If stack is zero, we've found the matching closing parenthesis
+      if (stack === 0) {
+        return i;
+      }
     }
   }
-
-  return conditions.join(' ' + anyFilterObject.operator + ' ');
+  // If no closing parenthesis is found, return -1 or throw an error
+  return -1;
 }
 
-const trimParanthesis = (str: string) => {
+function processRawCondition(rawCondition: string, paramMap: any, paramIndex: number = 0) {
+  const paramName = "param_" + paramIndex;
+  const conditionData = {
+    operator: "eq",
+    columnName: "",
+    value: "",
+    paramName,
+  }
+  
+  const splitEqCondition = rawCondition.split(" eq ");
+  if (splitEqCondition.length === 2) {
+    conditionData.columnName = splitEqCondition[0].split('/')[1];
+    conditionData.value = trimCommas(splitEqCondition[1]);
+    paramMap[paramName] = conditionData.value;
+    return conditionData;
+  }
+  
+  const splitContainsCondition = rawCondition.split("contains");
+  if (splitContainsCondition.length === 2) {
+    conditionData.operator = "contains";
+    const conditionContent = trimParanthesis(splitContainsCondition[1].replace("contains", ""));
+    const splitConditionContent = conditionContent.split(',');
+    conditionData.columnName = splitConditionContent[0].split('/')[1];
+    conditionData.value = trimCommas(splitConditionContent[1].trim());
+    paramMap[paramName] = "%" + conditionData.value + "%";
+    return conditionData;
+  }
+  return { error: true };
+}
+
+function trimParanthesis(str) {
   if (str[0] === "(" && str[str.length - 1] === ")") {
     return str.slice(1, -1);
   }
   return str;
 }
 
-const trimCommas = (str: string) => {
+function trimCommas(str) {
   if ((str[0] === "'" && str[str.length - 1] === "'") || (str[0] === '"' && str[str.length - 1] === '"')) {
     return str.slice(1, -1);
   }
   return str;
+}
+
+function getWhere(conditionObject, prefix = "") {
+
+  
+  let where = "";
+  for (let i in conditionObject) {
+    const conditionComponent = conditionObject[i];
+    if (conditionComponent.type === "condition" && conditionComponent.content) {
+      const columnName = conditionComponent.content.columnName + prefix;
+      const paramName = conditionComponent.content.paramName;
+      if (conditionComponent.content.operator === "contains") {
+        where += "`child`.`" + columnName + "` LIKE :" + paramName;
+      }
+      if (conditionComponent.content.operator === "eq") {
+        where += "`child`.`" + columnName + "` = :" + paramName;
+      }
+    }
+    if (conditionComponent.type === "operator") {
+       where += conditionComponent.value;
+    }
+    if (conditionComponent.type === "group") {
+       where += "(" + getWhere(conditionComponent.children) + ")";
+    }
+  }
+  return where;
 }
 
 const executeQueryByQueryBuilder = async (inputQueryBuilder, query, options: any) => {
@@ -217,31 +335,17 @@ const executeQueryByQueryBuilder = async (inputQueryBuilder, query, options: any
   const filters = odataQuery.ast.value.options.find(o => o.type === 'Filter')?.value;
   const anyFilter = hasAnyFilter(filters?.value);
   if (anyFilter) {
-    let anyFilterDetails = getAnyFilterDetails(anyFilter, metadata);
-    if (anyFilterDetails) {
-      const whereCondition = getWhereCondition(anyFilterDetails.anyFilterObject); 
+    let anyFilterDetails = getWhereFromAnyString(anyFilter, metadata);
+    if (anyFilterDetails.whereQueryString) { 
       queryBuilder = queryBuilder.andWhere(
         '`' + anyFilterDetails.targetName + '`.`id` IN ( ' +
         'SELECT distinct `parent`.`id` ' +
         'FROM `' + anyFilterDetails.tableName + '` AS parent ' +
         'JOIN `' + anyFilterDetails.childrenTableName + '` AS child ON `parent`.`id` = `child`.`' + anyFilterDetails.joinFieldName + 'Id` ' +
-        'WHERE ' + whereCondition + ' ' +
-    ')', 
-      {  })
-      console.log(queryBuilder.getQuery());
-      
-    //   queryBuilder = queryBuilder.andWhere(
-    //     '`RecordEntity`.`id` IN ( ' +
-    //     'SELECT distinct `parent`.`id` ' +
-    //     'FROM `record_entity` AS parent ' +
-    //     'JOIN `record_entity` AS child ON `parent`.`id` = `child`.`parentId` ' +
-    //     'WHERE `child`.`id` = :childId ' +
-    // ')', 
-    //   { childId: 52 })
+        'WHERE ' + anyFilterDetails.whereQueryString + ' ' +
+    ')', anyFilterDetails.paramMap)
     }
   }
-
-  // odataQuery = changeDuplicateNavProps(odataQuery);
 
   queryBuilder = processIncludes(queryBuilder, odataQuery, alias, metadata);
 
