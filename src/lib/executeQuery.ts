@@ -80,6 +80,7 @@ function parseCondition(input: string, paramIndex: number = 0, paramMap: any = {
   const output = {
     tree: [],
     paramMap,
+    paramIndex,
   };
   let lastIndex = 0;
   let nextIndex = 0;
@@ -101,8 +102,8 @@ function parseCondition(input: string, paramIndex: number = 0, paramMap: any = {
         children: [],
         content: {},
       };
-      condition.content = processRawCondition(condition.value, output.paramMap, paramIndex);
-      paramIndex++;
+      condition.content = processRawCondition(condition.value, output.paramMap, output.paramIndex);
+      output.paramIndex++;
       output.tree.push(condition);
       
       continue;
@@ -135,8 +136,8 @@ function parseCondition(input: string, paramIndex: number = 0, paramMap: any = {
         children: [],
       };
       if (output.tree.length === 0 || output.tree[output.tree.length - 1].type !== "group") {
-        condition.content = processRawCondition(condition.value, paramMap, paramIndex);
-        paramIndex++;
+        condition.content = processRawCondition(condition.value, paramMap, output.paramIndex);
+        output.paramIndex++;
         output.tree.push(condition);
       }
       output.tree.push(operator);
@@ -153,10 +154,11 @@ function parseCondition(input: string, paramIndex: number = 0, paramMap: any = {
           value: input.slice(index + 1, nextIndex),
           children: [],
         };
-        const parsed = parseCondition(group.value, paramIndex++, paramMap);
+        const parsed = parseCondition(group.value, output.paramIndex++, output.paramMap);
         group.children = parsed.tree;
         output.tree.push(group);
         output.paramMap = parsed.paramMap;
+        output.paramIndex = parsed.paramIndex;
       }
       continue;
     }
@@ -170,16 +172,16 @@ function parseCondition(input: string, paramIndex: number = 0, paramMap: any = {
         children: [],
         content: {},
       };
-      condition.content = processRawCondition(condition.value, paramMap, paramIndex);
-      paramIndex++;
+      condition.content = processRawCondition(condition.value, paramMap, output.paramIndex);
+      output.paramIndex++;
       output.tree.push(condition);
     }
   }
   return output;
 }
 
-function getWhereFromAnyString(string, metadata) {
-  const splitString = string.split('/any(');
+function getWhereFromAnyString(anyFilter: string, metadata: any) {
+  const splitString = anyFilter.split('/any(');
   const entity = splitString[0];
   
   const tableName = metadata.relations.find(c => c.propertyName === entity).entityMetadata.tableName;
@@ -294,6 +296,13 @@ function getWhere(conditionObject, prefix = "") {
   return where;
 }
 
+const escapeCharacters = (filter: string) => {
+  filter = filter.replace(/(?<!\\)%/g, '\\%');
+  filter = filter.replace(/(?<!\\)"/g, '\\"');
+  filter = filter.replace(/(?<!\\)'/g, "\\'");
+  return filter;
+}
+
 const executeQueryByQueryBuilder = async (inputQueryBuilder, query, options: any) => {
   const alias = inputQueryBuilder.expressionMap.mainAlias.name;
   //const filter = createFilter(query.$filter, {alias: alias});
@@ -333,7 +342,8 @@ const executeQueryByQueryBuilder = async (inputQueryBuilder, query, options: any
   }
     
   const filters = odataQuery.ast.value.options.find(o => o.type === 'Filter')?.value;
-  const anyFilter = hasAnyFilter(filters?.value);
+  let anyFilter = hasAnyFilter(filters?.value);
+  anyFilter = escapeCharacters(anyFilter);
   if (anyFilter) {
     let anyFilterDetails = getWhereFromAnyString(anyFilter, metadata);
     if (anyFilterDetails.whereQueryString) { 
