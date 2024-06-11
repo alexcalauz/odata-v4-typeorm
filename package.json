@@ -1,6 +1,6 @@
 {
   "name": "@alex.calauz/odata-v4-typeorm",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "OData to TYPEORM query compiler",
   "main": "build/lib/index.js",
   "typings": "build/lib/index",

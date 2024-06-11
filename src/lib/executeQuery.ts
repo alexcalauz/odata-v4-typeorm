@@ -1,4 +1,3 @@
-import { parse } from 'path';
 import { createQuery } from './createQuery';
 
 const mapToObject = (aMap) => {
@@ -297,6 +296,9 @@ function getWhere(conditionObject, prefix = "") {
 }
 
 const escapeCharacters = (filter: string) => {
+  if (!filter) {
+    return;
+  }
   filter = filter.replace(/(?<!\\)%/g, '\\%');
   filter = filter.replace(/(?<!\\)"/g, '\\"');
   filter = filter.replace(/(?<!\\)'/g, "\\'");
@@ -343,7 +345,6 @@ const executeQueryByQueryBuilder = async (inputQueryBuilder, query, options: any
     
   const filters = odataQuery.ast.value.options.find(o => o.type === 'Filter')?.value;
   let anyFilter = hasAnyFilter(filters?.value);
-  anyFilter = escapeCharacters(anyFilter);
   if (anyFilter) {
     let anyFilterDetails = getWhereFromAnyString(anyFilter, metadata);
     if (anyFilterDetails.whereQueryString) { 
